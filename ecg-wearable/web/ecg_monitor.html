@@ -1,0 +1,1235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ECG Monitor</title>
+<style>
+:root{
+  --bg:#1c1d21; --panel:#26282d; --line:#34363c; --ink:#e9eaee; --muted:#9a9ea8;
+  --accent:#e5484d; --ok:#3fb950; --warn:#e0a030;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  background:var(--bg);color:var(--ink);
+  font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  display:flex;flex-direction:column;
+}
+header{
+  display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;
+  padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px}
+.dot{width:10px;height:10px;border-radius:50%;background:#6b7079;flex:none}
+.dot.live{background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.25)}
+.dot.frozen{background:var(--warn)}
+.dot.warn{background:var(--accent)}
+.status{font-weight:400;color:var(--muted)}
+.controls{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-left:auto}
+button{
+  font:inherit;color:var(--ink);background:#33363d;border:1px solid #454851;
+  border-radius:8px;padding:7px 14px;cursor:pointer;
+}
+button:hover{background:#3d414a}
+button.primary{background:#2f6fe4;border-color:#2f6fe4;color:#fff}
+button.primary:hover{background:#4079ee}
+button.on{background:var(--warn);border-color:var(--warn);color:#1b1b1b}
+label{display:flex;align-items:center;gap:6px;color:var(--muted);white-space:nowrap}
+select,input[type=number]{
+  font:inherit;color:var(--ink);background:#1f2125;border:1px solid #454851;
+  border-radius:6px;padding:5px 8px;
+}
+input[type=number]{width:80px}
+main{
+  flex:1;min-height:0;overflow:auto;padding:16px;
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+}
+.paper{
+  position:relative;width:100%;border-radius:6px;overflow:hidden;
+  background:#fff7f5;box-shadow:0 6px 24px rgba(0,0,0,.35);flex:none;
+}
+canvas{display:block;width:100%}
+.banner{
+  position:absolute;left:50%;top:12px;transform:translateX(-50%);
+  background:var(--accent);color:#fff;font-weight:600;font-size:13px;
+  padding:6px 14px;border-radius:999px;white-space:nowrap;
+}
+.tag{
+  position:absolute;right:12px;top:12px;font-size:12px;font-weight:600;letter-spacing:.04em;
+  padding:4px 10px;border-radius:999px;background:rgba(0,0,0,.08);color:#5a4a4a;
+}
+.tag.live{background:rgba(63,185,80,.18);color:#1f6b2d}
+.tag.ch{right:auto;left:12px;background:#1f2125;color:#fff;font-size:13px}
+.tag.frozen{background:rgba(224,160,48,.25);color:#7a5200}
+.tag.rev{background:rgba(47,111,228,.16);color:#1b4aa8}
+.bpm{position:absolute;right:12px;top:44px;display:flex;align-items:baseline;gap:6px;padding:4px 12px;border-radius:10px;background:rgba(255,255,255,.72);color:#8f1d22;font-weight:700;font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}
+.bpm small{font-size:12px;font-weight:600;letter-spacing:.05em;color:#8f1d22;opacity:.8}
+.bpm.dim{color:#9a8686}.bpm.dim small{color:#9a8686}
+button.rec{border-color:#7a2a2e}
+button.rec.live{background:var(--accent);border-color:var(--accent);color:#fff;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.72}}
+button:disabled{opacity:.45;cursor:default}
+.rvbar{width:100%;display:flex;flex-direction:column;gap:8px;flex:none}
+.rvrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.rvrow .time{font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600;min-width:120px}
+.rvrow .file{color:var(--muted);margin-left:auto;font-size:13px}
+#tl{width:100%;height:64px;border-radius:6px;background:#202228;cursor:pointer;touch-action:none}
+.rvsum{color:var(--muted);font-size:13px}
+.rvsum b{color:var(--ink);font-weight:600}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 10px;vertical-align:-1px}
+.sw:first-child{margin-left:0}
+[hidden]{display:none!important}
+.info{color:var(--muted);font-size:13px;text-align:center;max-width:1100px}
+.info b{color:var(--ink);font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot" id="dot"></span>ECG Monitor <span class="status" id="status">Not connected</span></div>
+  <div class="controls">
+    <button class="primary" id="btnConnect">Connect USB</button>
+    <button class="primary" id="btnBle" title="Wireless: Chrome or Edge on a computer, or Chrome on Android">Connect Bluetooth</button>
+    <button id="btnDemo">Demo</button>
+    <button id="btnFreeze" title="Space bar">Freeze</button>
+    <button id="btnRec" class="rec" title="Save everything coming in (the untouched signal) to a CSV file you can open again later">● Record</button>
+    <button id="btnOpen" title="Open a saved recording and scroll back through it">Open recording…</button>
+    <button id="btnLive" hidden>← Back to live</button>
+    <input type="file" id="fileIn" accept=".csv,.txt,text/csv,text/plain" hidden>
+    <label>Seconds on screen
+      <select id="selWin"><option>6</option><option>8</option><option>10</option><option>12</option><option>15</option></select>
+    </label>
+    <label>Style
+      <select id="selMode"><option value="scroll">Scrolling</option><option value="sweep">Sweep</option></select>
+    </label>
+    <label>Module gain <input type="number" id="numGain" min="100" max="5000" step="50"></label>
+    <label><input type="checkbox" id="chkSmooth"> Filter 60&nbsp;Hz</label>
+    <label><input type="checkbox" id="chkIgnore"> Ignore leads-off</label>
+    <label id="lblPick" hidden title="Two amplifier boards are being read at once. Best picks the cleaner one automatically; A or B forces one">Board <select id="selPick"><option value="auto">Best (auto)</option><option value="a">A</option><option value="b">B</option></select> <label style="margin-left:6px"><input type="checkbox" id="chkOther"> show other</label></label>
+    <label id="lblBaud" title="Serial speed for Connect USB. The two-board sketch uses 460800; the older single-board sketches use 115200">USB speed <select id="selBaud"><option value="460800">460800</option><option value="115200">115200</option></select></label>
+    <label title="How firmly the slow up-and-down drift of the line is removed. Firm makes P and T waves easier to see; it can bend the ST segment a little. Light is the original behaviour">Baseline <select id="selBase"><option value="off">Off (DC only)</option><option value="light">Light</option><option value="firm">Firm (0.5 Hz)</option></select></label>
+    <label title="Remove muscle noise and static to reveal the underlying trace (Kalman smoother)"><input type="checkbox" id="chkDen"> Denoise</label>
+    <label title="How hard the denoiser smooths. 1.0 = the tuned default; lower keeps more detail, higher removes more noise">Strength <input type="range" id="rngStr" min="0.4" max="2" step="0.1" style="width:80px"> <span id="strVal" style="min-width:28px"></span></label>
+    <label title="Draw the untouched signal in light grey underneath, so you can check the denoiser is not changing the beats"><input type="checkbox" id="chkUnder"> Show raw underneath</label>
+    <label id="lblNoise" title="Demo only: add simulated muscle noise that comes and goes" hidden><input type="checkbox" id="chkNoise"> Muscle noise (demo)</label>
+    <label title="Show the trace this many seconds late, so bad stretches can be removed before they are drawn">Delay <input type="range" id="rngDelay" min="0" max="4" step="0.1" style="width:90px"> <span id="delayVal" style="min-width:34px"></span></label>
+    <label title="What to show where the mux switched electrodes: join the two sides, leave it blank, or draw a flat line">Gap <select id="selGap"><option value="splice">Splice</option><option value="blank">Blank</option><option value="flat">Flat line</option></select></label>
+    <label title="After the mux switches electrodes, pause the line while the amplifier settles"><input type="checkbox" id="chkHide"> Hide settling after switch</label>
+  </div>
+</header>
+<main id="main">
+  <div class="paper" id="paper">
+    <canvas id="cv"></canvas>
+    <div class="banner" id="banner" hidden></div>
+    <div class="tag" id="tag"></div>
+    <div class="tag ch" id="chTag" hidden></div>
+    <div class="bpm" id="bpm" hidden title="Heart rate estimated from the last 8 seconds shown (median beat-to-beat interval)"></div>
+  </div>
+  <div class="rvbar" id="rvbar" hidden>
+    <div class="rvrow">
+      <button id="rvBack" title="Back 10 s (Shift+←)">⟲ 10 s</button>
+      <button id="rvPlay" class="primary" title="Space bar">▶ Play</button>
+      <button id="rvFwd" title="Forward 10 s (Shift+→)">10 s ⟳</button>
+      <label>Speed <select id="rvSpeed"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select></label>
+      <span class="time" id="rvTime"></span>
+      <span class="file" id="rvFile"></span>
+    </div>
+    <canvas id="tl" title="Whole recording. Click or drag to jump. Colour = electrode used, height = noise"></canvas>
+    <div class="rvsum" id="rvSum"></div>
+  </div>
+  <div class="info" id="info"></div>
+</main>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- constants ---------- */
+const FS = 250;            // samples per second sent by the ESP32 sketch
+const MAINS = 60;          // Hz. Use 50 outside the Americas.
+const MM_PER_S = 25;       // standard ECG paper speed
+const MM_PER_MV = 10;      // standard ECG sensitivity
+const KEEP_S = 40;         // seconds of history kept in memory
+const SAT_HI = 3100, SAT_LO = 170;   // pin mV at or beyond these = the amplifier/ADC is pinned at a rail (the real signal is lost)
+const SETTLE_S = 2.5;      // seconds the line is paused after the mux switches electrodes
+const LAG_S = 0.5;         // live denoiser: a sample is final once this much newer signal has arrived
+const DEN_DELAY = 0.62;    // so with Denoise on the picture is never less than this far behind
+const DEN_WIN_S = 8, DEN_STEP = 25, DEN_MARGIN = 1 * FS;   // live denoiser re-smooths the last 8 s every 25 samples
+const TRACE_RAW = '#b79f9f';
+const CHCOL = ['#8a8f9a', '#4f8cff', '#f0a030', '#4cc38a', '#c678dd', '#e5484d', '#3cc4d9', '#d4d070', '#b0b0b0'];  // index = channel + 1
+const PAPER = '#fff7f5', GRID_MINOR = '#f5cdcd', GRID_MAJOR = '#e79a9a', TRACE = '#111';
+
+const $ = id => document.getElementById(id);
+const el = {
+  dot: $('dot'), status: $('status'), connect: $('btnConnect'), ble: $('btnBle'), demo: $('btnDemo'),
+  freeze: $('btnFreeze'), win: $('selWin'), mode: $('selMode'), gain: $('numGain'),
+  smooth: $('chkSmooth'), ignore: $('chkIgnore'), hide: $('chkHide'), gapSel: $('selGap'), delay: $('rngDelay'), delayVal: $('delayVal'), main: $('main'), paper: $('paper'),
+  cv: $('cv'), banner: $('banner'), tag: $('tag'), chTag: $('chTag'), info: $('info'),
+  rec: $('btnRec'), open: $('btnOpen'), live: $('btnLive'), fileIn: $('fileIn'),
+  den: $('chkDen'), str: $('rngStr'), strVal: $('strVal'), under: $('chkUnder'), noise: $('chkNoise'), lblNoise: $('lblNoise'),
+  rvbar: $('rvbar'), rvBack: $('rvBack'), rvPlay: $('rvPlay'), rvFwd: $('rvFwd'), rvSpeed: $('rvSpeed'),
+  rvTime: $('rvTime'), rvFile: $('rvFile'), tl: $('tl'), rvSum: $('rvSum'),
+  baseSel: $('selBase'), bpm: $('bpm'), pick: $('selPick'), lblPick: $('lblPick'), other: $('chkOther'), baud: $('selBaud'),
+};
+const ctx = el.cv.getContext('2d');
+
+/* ---------- settings ---------- */
+const cfg = { win: 10, gain: 1100, smooth: true, ignore: false, mode: 'scroll', hideSettle: true, delay: 0.5, gapMode: 'splice', denoise: true, dstr: 1, under: true, demoNoise: false, baseline: 'light', pick: 'auto', other: false, baud: 460800 };
+try { Object.assign(cfg, JSON.parse(localStorage.getItem('ecgCfg') || '{}')); } catch (e) {}
+const saveCfg = () => { try { localStorage.setItem('ecgCfg', JSON.stringify(cfg)); } catch (e) {} };
+el.win.value = String(cfg.win); el.mode.value = cfg.mode; el.gain.value = cfg.gain;
+el.smooth.checked = cfg.smooth; el.ignore.checked = cfg.ignore; el.hide.checked = cfg.hideSettle;
+el.gapSel.value = cfg.gapMode;
+el.pick.value = cfg.pick; el.other.checked = cfg.other; el.baud.value = String(cfg.baud);
+el.baseSel.value = cfg.baseline; el.den.checked = cfg.denoise; el.under.checked = cfg.under; el.noise.checked = cfg.demoNoise;
+const showStr = () => { el.str.value = cfg.dstr; el.strVal.textContent = cfg.dstr.toFixed(1) + '×'; };
+showStr();
+const effDelay = () => cfg.denoise ? Math.max(cfg.delay, DEN_DELAY) : cfg.delay;   // how far behind the picture runs
+const showDelay = () => { el.delay.value = cfg.delay; el.delayVal.textContent = cfg.delay.toFixed(1) + ' s'; };
+showDelay();
+
+/* DENOISER START — Kalman (integrated random walk) + RTS smoother. Pure functions, no page state. */
+const DN = (() => {
+  const FS = 250, SQ = Math.SQRT1_2;
+  const PARAMS = { ql: 300, qh: 8e4, rho: 1.5, kap: 2.0, dil: 0.07 };   // tuned on real flex noise (see notes)
+
+  function design(kind, f0) {                       // 2nd-order Butterworth biquad
+    const w = 2 * Math.PI * f0 / FS, c = Math.cos(w), al = Math.sin(w) / (2 * SQ), a0 = 1 + al;
+    return kind === 'hp'
+      ? [(1 + c) / 2 / a0, -(1 + c) / a0, (1 + c) / 2 / a0, -2 * c / a0, (1 - al) / a0]
+      : [(1 - c) / 2 / a0, (1 - c) / a0, (1 - c) / 2 / a0, -2 * c / a0, (1 - al) / a0];
+  }
+  function pass(x, co, rev) {                       // one biquad over the whole array, started at steady state
+    const b0 = co[0], b1 = co[1], b2 = co[2], a1 = co[3], a2 = co[4], n = x.length;
+    const u = rev ? x[n - 1] : x[0], yss = (b0 + b1 + b2) / (1 + a1 + a2) * u;
+    let z2 = b2 * u - a2 * yss, z1 = b1 * u - a1 * yss + z2;
+    if (!rev) for (let i = 0; i < n; i++) { const v = x[i], y = b0 * v + z1; z1 = b1 * v - a1 * y + z2; z2 = b2 * v - a2 * y; x[i] = y; }
+    else for (let i = n - 1; i >= 0; i--) { const v = x[i], y = b0 * v + z1; z1 = b1 * v - a1 * y + z2; z2 = b2 * v - a2 * y; x[i] = y; }
+  }
+  function filtfilt(x, spec) {                      // zero-phase: forward then backward
+    const y = Float64Array.from(x), cos = spec.map(s => design(s[0], s[1]));
+    for (const co of cos) pass(y, co, false);
+    for (const co of cos) pass(y, co, true);
+    return y;
+  }
+  function rollMedian(a, size) {                    // centred running median, edges repeat the end value
+    const n = a.length, out = new Float64Array(n); if (!n) return out;
+    const half = size >> 1, mid = size >> 1;
+    const at = j => { j -= half; return a[j < 0 ? 0 : (j > n - 1 ? n - 1 : j)]; };
+    const w = new Float64Array(size);
+    for (let k = 0; k < size; k++) w[k] = at(k);
+    w.sort(); out[0] = w[mid];
+    for (let i = 1; i < n; i++) {
+      const old = at(i - 1), nw = at(i - 1 + size);
+      if (old !== nw) {
+        let lo = 0, hi = size - 1;
+        while (lo < hi) { const m = (lo + hi) >> 1; if (w[m] < old) lo = m + 1; else hi = m; }
+        let q = lo;
+        if (nw > old) { while (q + 1 < size && w[q + 1] < nw) { w[q] = w[q + 1]; q++; } }
+        else { while (q > 0 && w[q - 1] > nw) { w[q] = w[q - 1]; q--; } }
+        w[q] = nw;
+      }
+      out[i] = w[mid];
+    }
+    return out;
+  }
+  function movmean(a, size) {
+    const n = a.length, out = new Float64Array(n), h = size >> 1, cl = j => a[j < 0 ? 0 : (j > n - 1 ? n - 1 : j)];
+    let s = 0; for (let j = -h; j <= h; j++) s += cl(j);
+    out[0] = s / size;
+    for (let i = 1; i < n; i++) { s += cl(i + h) - cl(i - 1 - h); out[i] = s / size; }
+    return out;
+  }
+  function dilate(m, r) {
+    const n = m.length, out = new Uint8Array(n); let last = -1e9, nxt = 1e9;
+    for (let i = 0; i < n; i++) { if (m[i]) last = i; if (i - last <= r) out[i] = 1; }
+    for (let i = n - 1; i >= 0; i--) { if (m[i]) nxt = i; if (nxt - i <= r) out[i] = 1; }
+    return out;
+  }
+  // where the QRS complexes are: band-passed energy well above its own 3-second median
+  function qrsMask(x, kap, dil) {
+    const y = filtfilt(x, [['hp', 8], ['lp', 25]]);
+    for (let i = 0; i < y.length; i++) y[i] = Math.abs(y[i]);
+    const env = movmean(y, Math.round(0.06 * FS) | 1), base = rollMedian(env, 3 * FS);
+    const m = new Uint8Array(x.length);
+    for (let i = 0; i < x.length; i++) m[i] = env[i] > kap * base[i] ? 1 : 0;
+    return dilate(m, Math.round(dil * FS));
+  }
+  // how noisy is it right now: median of the >15 Hz content (robust to the QRS itself)
+  function noiseMeter(x) {
+    const hp = filtfilt(x, [['hp', 15]]);
+    for (let i = 0; i < hp.length; i++) hp[i] = Math.abs(hp[i]);
+    const med = rollMedian(hp, Math.round(1.5 * FS) | 1);
+    for (let i = 0; i < med.length; i++) med[i] /= 0.6745;
+    return med;
+  }
+  function kalmanRTS(y, R, Q) {
+    const n = y.length, dt = 1 / FS;
+    const f0 = new Float64Array(n), f1 = new Float64Array(n), P0 = new Float64Array(n), P1 = new Float64Array(n), P2 = new Float64Array(n);
+    const p0 = new Float64Array(n), p1 = new Float64Array(n), Q0 = new Float64Array(n), Q1 = new Float64Array(n), Q2 = new Float64Array(n);
+    let x0 = y[0], x1 = 0, a = 1, b = 0, c = 10;
+    for (let k = 0; k < n; k++) {
+      if (k > 0) {
+        const q = Q[k];
+        x0 += dt * x1;
+        const an = a + 2 * dt * b + dt * dt * c + q * dt ** 3 / 3, bn = b + dt * c + q * dt * dt / 2, cn = c + q * dt;
+        a = an; b = bn; c = cn;
+      }
+      p0[k] = x0; p1[k] = x1; Q0[k] = a; Q1[k] = b; Q2[k] = c;
+      const S = a + R[k], K0 = a / S, K1 = b / S, r = y[k] - x0;
+      x0 += K0 * r; x1 += K1 * r;
+      const an = (1 - K0) * a, bn = (1 - K0) * b, cn = c - K1 * b;
+      a = an; b = bn; c = cn;
+      f0[k] = x0; f1[k] = x1; P0[k] = a; P1[k] = b; P2[k] = c;
+    }
+    const o0 = Float64Array.from(f0), o1 = Float64Array.from(f1);
+    for (let k = n - 2; k >= 0; k--) {
+      const a00 = P0[k], a01 = P1[k], a11 = P2[k], b00 = Q0[k + 1], b01 = Q1[k + 1], b11 = Q2[k + 1];
+      const det = b00 * b11 - b01 * b01, i00 = b11 / det, i01 = -b01 / det, i11 = b00 / det;
+      const g00 = a00 + dt * a01, g01 = a01, g10 = a01 + dt * a11, g11 = a11;
+      const c00 = g00 * i00 + g01 * i01, c01 = g00 * i01 + g01 * i11, c10 = g10 * i00 + g11 * i01, c11 = g10 * i01 + g11 * i11;
+      const d0 = o0[k + 1] - p0[k + 1], d1 = o1[k + 1] - p1[k + 1];
+      o0[k] = f0[k] + c00 * d0 + c01 * d1; o1[k] = f1[k] + c10 * d0 + c11 * d1;
+    }
+    return o0;
+  }
+  // x: Float64Array, one unbroken stretch of signal (mV). strength scales how hard it smooths (1 = tuned default).
+  function denoiseRun(x, strength) {
+    const n = x.length;
+    if (n < 40) return { out: Float64Array.from(x), sig: new Float64Array(n), mask: new Uint8Array(n) };
+    const P = PARAMS, sig = noiseMeter(x), R = new Float64Array(n), Q = new Float64Array(n);
+    const mask = qrsMask(x, P.kap, P.dil), rho = P.rho * (strength || 1);
+    for (let i = 0; i < n; i++) { const s = sig[i] * rho; R[i] = Math.max(s * s, 1e-4); Q[i] = mask[i] ? P.qh : P.ql; }
+    return { out: kalmanRTS(x, R, Q), sig, mask };
+  }
+  // zero-phase high-pass for baseline removal in Review (forward and backward, so beats do not shift)
+  function highpassZP(x, fc) { return filtfilt(x, [['hp', fc]]); }
+  // R-peak finder for the heart-rate readout: band-passed slope energy, adaptive threshold, 0.28 s refractory
+  function detectBeats(x) {
+    const n = x.length; if (n < 2 * FS) return [];
+    const y = filtfilt(x, [['hp', 6], ['lp', 20]]), d = new Float64Array(n);
+    for (let i = 1; i < n - 1; i++) { const g = (y[i + 1] - y[i - 1]) / 2; d[i] = g * g; }
+    const m = movmean(d, Math.round(0.08 * FS) | 1), sorted = Float64Array.from(m).sort();
+    const thr = 0.3 * sorted[Math.floor(0.95 * (n - 1))], cand = [];
+    for (let i = 1; i < n - 1; i++) if (m[i] >= thr && m[i] > m[i - 1] && m[i] >= m[i + 1]) cand.push(i);
+    cand.sort((a, b) => m[b] - m[a]);
+    const acc = [], refr = Math.round(0.28 * FS);
+    for (const c of cand) if (acc.every(a => Math.abs(a - c) >= refr)) acc.push(c);
+    acc.sort((a, b) => a - b);
+    return acc.map(c => { let b = c, bv = -1; for (let j = Math.max(0, c - 15); j <= Math.min(n - 1, c + 15); j++) { const v = Math.abs(y[j]); if (v > bv) { bv = v; b = j; } } return b; });
+  }
+  return { denoiseRun, highpassZP, detectBeats, FS, PARAMS };
+})();
+/* DENOISER END */
+
+/* ---------- filters (60 Hz notch + 40 Hz low-pass) ---------- */
+class Biquad {
+  constructor(b0, b1, b2, a1, a2) { Object.assign(this, { b0, b1, b2, a1, a2, z1: 0, z2: 0 }); }
+  process(x) {
+    const y = this.b0 * x + this.z1;
+    this.z1 = this.b1 * x - this.a1 * y + this.z2;
+    this.z2 = this.b2 * x - this.a2 * y;
+    return y;
+  }
+  reset() { this.z1 = this.z2 = 0; }
+}
+function makeNotch(f0, fs, Q) {
+  const w = 2 * Math.PI * f0 / fs, al = Math.sin(w) / (2 * Q), a0 = 1 + al, c = Math.cos(w);
+  return new Biquad(1 / a0, -2 * c / a0, 1 / a0, -2 * c / a0, (1 - al) / a0);
+}
+function makeLowpass(fc, fs) {
+  const w = 2 * Math.PI * fc / fs, c = Math.cos(w), al = Math.sin(w) / (2 * Math.SQRT1_2), a0 = 1 + al;
+  return new Biquad((1 - c) / 2 / a0, (1 - c) / a0, (1 - c) / 2 / a0, -2 * c / a0, (1 - al) / a0);
+}
+function makeHighpass(fc, fs) {
+  const w = 2 * Math.PI * fc / fs, c = Math.cos(w), al = Math.sin(w) / (2 * Math.SQRT1_2), a0 = 1 + al;
+  return new Biquad((1 + c) / 2 / a0, -(1 + c) / a0, (1 + c) / 2 / a0, -2 * c / a0, (1 - al) / a0);
+}
+const notch = makeNotch(MAINS, FS, 20), lowpass = makeLowpass(40, FS);
+
+/* ---------- data ---------- */
+let ts = [], vs = [];            // seconds, millivolts at the electrodes (NaN = leads off)
+let lastT = null, base = 0, needInit = true, settleUntil = 0;
+let leadsOff = false, leadsText = '';
+let hideUntil = 0;                // line paused until this time (s) after a switch
+let curCh = null, marks = [];     // active mux channel (null = not reported) and where it changed
+let skip = 0;                     // gap time already jumped over in splice mode (s)
+let chLog = [], pendingCut = null; // channel history (for the badge) and the bad stretch the ESP32 reported
+let frozen = false, frozenAt = 0;
+let source = 'none';             // 'serial' | 'ble' | 'demo' | 'none'
+let den = [], sg = [], denDone = 0, dnCount = 0;   // denoised copy of vs, noise estimate, how far the denoised copy is final
+let keepAll = false;                               // review mode keeps the whole recording
+let vo = [];                                       // the board that is NOT shown (two-board mode), same time axis as vs
+let dualSeen = false;                              // true once two-board data has arrived (or a two-board recording is open)
+const mkCh = () => ({ base: 0, needInit: true, settleUntil: 0, notch: makeNotch(MAINS, FS, 20), lowpass: makeLowpass(40, FS), lastMv: 0, noise: 20, amp: 100, off: false, sat: false, satRun: 0, satFrac: 0, y: NaN });
+const CHN = [mkCh(), mkCh()];                      // per-board filter state, both always running so switching has no gap
+let pickK = 0, pickAt = -1e9, satRun1 = 0, satDead1 = false;
+
+function resetData() {
+  satRun1 = 0; satDead1 = false; ts = []; vs = []; vo = []; den = []; sg = []; denDone = 0; dnCount = 0;
+  CHN[0] = mkCh(); CHN[1] = mkCh(); pickK = 0; pickAt = -1e9;
+  lastT = null; needInit = true; leadsOff = false; curCh = null; marks = []; hideUntil = 0; chLog = []; pendingCut = null; skip = 0;
+  notch.reset(); lowpass.reset();
+}
+function push(t, v, o) {
+  ts.push(t); vs.push(v); vo.push(o === undefined ? NaN : o); den.push(NaN); sg.push(NaN);
+  if (!keepAll && ts.length > KEEP_S * FS * 1.25) {
+    const cut = ts.length - KEEP_S * FS;
+    ts.splice(0, cut); vs.splice(0, cut); vo.splice(0, cut); den.splice(0, cut); sg.splice(0, cut);
+    denDone = Math.max(0, denDone - cut);
+  }
+}
+
+/* ---------- denoising: live (fixed lag) and whole-recording ---------- */
+// Live: every 25 samples re-smooth the last 8 s, and make final every sample that is at least LAG_S old.
+function denoiseLive() {
+  const n = ts.length; if (n < 40) return;
+  const target = n - Math.round(LAG_S * FS), wa = Math.max(0, n - DEN_WIN_S * FS);
+  let done = denDone, i = wa;
+  while (i < n) {
+    if (vs[i] !== vs[i]) { i++; continue; }
+    const r0 = i; while (i < n && vs[i] === vs[i]) i++;
+    const r1 = i, trunc = r0 === wa && wa > 0 && vs[wa - 1] === vs[wa - 1];
+    const fin = r1 < n ? r1 : Math.min(r1, target);          // a stretch that has ended can be finished completely
+    const start = Math.max(denDone, trunc ? r0 + DEN_MARGIN : r0);
+    if (fin > done) done = fin;
+    if (fin <= start) continue;
+    const res = DN.denoiseRun(Float64Array.from(vs.slice(r0, r1)), cfg.dstr);
+    for (let j = start; j < fin; j++) { den[j] = res.out[j - r0]; sg[j] = res.sig[j - r0]; }
+  }
+  if (done > denDone) denDone = done;
+}
+// Whole recording: every unbroken stretch is smoothed with hindsight (long ones in overlapping 60 s pieces).
+function denoiseAll() {
+  const n = ts.length, CH = 60 * FS, OV = 3 * FS; let i = 0;
+  while (i < n) {
+    if (vs[i] !== vs[i]) { den[i] = NaN; sg[i] = NaN; i++; continue; }
+    const r0 = i; while (i < n && vs[i] === vs[i]) i++;
+    for (let s0 = r0; s0 < i; s0 += CH) {
+      const e = Math.min(i, s0 + CH), a = Math.max(r0, s0 - OV), b = Math.min(i, e + OV);
+      const res = DN.denoiseRun(Float64Array.from(vs.slice(a, b)), cfg.dstr);
+      for (let j = s0; j < e; j++) { den[j] = res.out[j - a]; sg[j] = res.sig[j - a]; }
+    }
+  }
+  denDone = n;
+}
+/* ---------- heart rate: median beat-to-beat interval over the 8 s ending at the time being shown ---------- */
+let bpmVal = null, bpmAt = 0;
+function updateBpm(tv, now) {
+  if (now - bpmAt < 400) return; bpmAt = now;
+  const i0 = upper(ts, tv - 8), i1 = upper(ts, tv), m = i1 - i0;
+  if (m < 3 * FS) { bpmVal = null; return; }
+  const x = new Float64Array(m), gap = new Uint8Array(m); let last = 0;
+  for (let k = 0; k < m; k++) { const v = cfg.denoise ? dval(i0 + k) : vs[i0 + k]; if (v === v) { x[k] = v; last = v; } else { x[k] = last; gap[k] = 1; } }
+  const b = DN.detectBeats(x), rr = [];
+  for (let k = 0; k + 1 < b.length; k++) {
+    let bad = false; for (let j = b[k]; j <= b[k + 1]; j++) if (gap[j]) { bad = true; break; }
+    const dt = (b[k + 1] - b[k]) / FS;
+    if (!bad && dt >= 0.3 && dt <= 2.5) rr.push(dt);
+  }
+  if (rr.length < 3) { bpmVal = null; return; }
+  rr.sort((p, q) => p - q); bpmVal = 60 / rr[rr.length >> 1];
+}
+const dval = i => { if (i < denDone) { const d = den[i]; if (d === d) return d; } return vs[i]; };   // denoised value, raw if not final yet
+
+// devMv = millivolts at the ESP32 pin, loP/loM = leads-off flags
+function onSample(t, devMv, loP, loM, ch) {
+  if (rec.on) recAdd(t, devMv, loP, loM, ch);
+  ingest(t, devMv, loP, loM, ch);
+  if (++dnCount >= DEN_STEP) { dnCount = 0; denoiseLive(); }
+}
+function ingest(t, devMv, loP, loM, ch) {
+  if (lastT !== null && t < lastT) resetData();       // ESP32 restarted
+  if (ch !== undefined && ch !== curCh) {              // mux switched: mark it and re-learn the resting level
+    chLog.push({ t, ch }); if (!keepAll && chLog.length > 200) chLog.shift();
+    if (curCh !== null) marks.push({ t, ch, from: (pendingCut && Math.abs(pendingCut.to - t) < 0.5) ? pendingCut.from : t });
+    pendingCut = null;
+    curCh = ch; needInit = true; hideUntil = t + SETTLE_S;
+    if (!keepAll && marks.length > 60) marks.shift();
+  }
+  const dt = lastT === null ? 1 / FS : Math.min(0.05, Math.max(0.001, t - lastT));
+  lastT = t;
+
+  const off = (loP || loM) && !cfg.ignore;
+  leadsOff = off;
+  leadsText = 'LEADS OFF — ' + [loP ? 'LO+' : '', loM ? 'LO−' : ''].filter(Boolean).join(' & ') + ' not touching';
+  if (off) { push(t, NaN); needInit = true; satRun1 = 0; return; }
+  satRun1 = (devMv >= SAT_HI || devMv <= SAT_LO) ? satRun1 + 1 : 0;
+  if (satRun1 >= 25) {                                 // stuck at a rail for 0.1 s: the real signal is lost, keep the filters clean
+    leadsOff = true; leadsText = 'SIGNAL TOO BIG — the amplifier is pinned at its limit (electrode moving or interference)';
+    satDead1 = true; push(t, NaN); return;
+  }
+  if (satDead1) { satDead1 = false; needInit = true; }
+
+  if (needInit) {                                      // (re)start: settle fast, then track slowly
+    base = devMv; settleUntil = Math.max(t + 2, hideUntil + 1); needInit = false;
+    notch.reset(); lowpass.reset();
+  }
+  // baseline: Light = slow tracker (original); Firm = faster live (about 0.45 Hz), or in Review a zero-phase 0.5 Hz filter applied afterwards
+  const tauSlow = cfg.baseline === 'off' ? 8 : cfg.baseline === 'firm' ? (rv.on ? 8 : 0.35) : 1.5;
+  const tau = t < settleUntil ? 0.25 : tauSlow;
+  base += (1 - Math.exp(-dt / tau)) * (devMv - base);   // slow baseline tracker
+  let y = devMv - base;
+  if (cfg.smooth) y = lowpass.process(notch.process(y));
+  push(t, (cfg.hideSettle && t < hideUntil) ? NaN : y / cfg.gain);   // output mV -> electrode mV (paused while settling)
+}
+
+/* ---------- two boards read at the same time ---------- */
+function onSample2(t, mvA, lpA, lmA, mvB, lpB, lmB) {
+  dualSeen = true;
+  if (rec.on) recAdd(t, mvA, lpA, lmA, undefined, mvB, lpB, lmB);
+  ingestDual(t, mvA, lpA, lmA, mvB, lpB, lmB);
+  if (++dnCount >= DEN_STEP) { dnCount = 0; denoiseLive(); }
+}
+function ingestDual(t, mvA, lpA, lmA, mvB, lpB, lmB) {
+  if (lastT !== null && t < lastT) resetData();       // ESP32 restarted
+  const dt = lastT === null ? 1 / FS : Math.min(0.05, Math.max(0.001, t - lastT));
+  lastT = t;
+  const X = [[mvA, lpA, lmA], [mvB, lpB, lmB]], y = [NaN, NaN];
+  const tauSlow = cfg.baseline === 'off' ? 8 : cfg.baseline === 'firm' ? (rv.on ? 8 : 0.35) : 1.5;
+  for (let k = 0; k < 2; k++) {
+    const S = CHN[k], mv = X[k][0];
+    S.off = ((X[k][1] || X[k][2]) && !cfg.ignore) || !isFinite(mv);
+    if (S.off) { S.needInit = true; S.sat = false; S.satRun = 0; S.satFrac = 0; continue; }
+    const hit = mv >= SAT_HI || mv <= SAT_LO;               // at a rail
+    S.satFrac += ((hit ? 1 : 0) - S.satFrac) / (0.5 * FS);   // share of the last half second spent at a rail
+    S.satRun = hit ? S.satRun + 1 : 0;
+    const wasDead = S.sat;
+    S.sat = S.satRun >= 25;                                  // stuck at a rail for 0.1 s: the real signal is lost
+    if (S.sat) continue;                                     // ignore it, keep the filters clean (a brief clipped peak is processed normally)
+    if (wasDead) S.needInit = true;                          // rail event over: re-learn the level
+    if (S.needInit) { S.base = mv; S.settleUntil = t + 2; S.needInit = false; S.notch.reset(); S.lowpass.reset(); S.lastMv = mv; S.amp = 100; }
+    S.base += (1 - Math.exp(-dt / (t < S.settleUntil ? 0.25 : tauSlow))) * (mv - S.base);
+    let v = mv - S.base;
+    if (cfg.smooth) v = S.lowpass.process(S.notch.process(v));
+    y[k] = v;
+    // how noisy is this board? running median of the sample-to-sample change, relative to how big its beats are
+    const d = Math.abs(mv - S.lastMv); S.lastMv = mv;
+    S.noise *= (d > S.noise) ? 1.006 : 0.994; if (S.noise < 1) S.noise = 1;
+    S.amp = Math.max(Math.abs(v), S.amp * (1 - 1 / (4 * FS))); if (S.amp < 20) S.amp = 20;
+  }
+  // which board to show
+  let k = pickK;
+  if (cfg.pick === 'a') k = 0; else if (cfg.pick === 'b') k = 1;
+  else {
+    const o = 1 - k, cur = CHN[k], oth = CHN[o];
+    const ready = t >= cur.settleUntil && t >= oth.settleUntil;
+    const curBad = cur.off || cur.sat || cur.satFrac > 0.2, othBad = oth.off || oth.sat || oth.satFrac > 0.2;
+    if (curBad && (!othBad || (oth.satFrac < 0.5 * cur.satFrac && !oth.off && !oth.sat)) && t - pickAt >= 1) k = o;
+    else if (ready && !curBad && !othBad && t - pickAt >= 4 && (oth.noise / oth.amp) < 0.6 * (cur.noise / cur.amp)) k = o;
+  }
+  if (k !== pickK || curCh === null) {
+    if (curCh !== null) { marks.push({ t, ch: k, from: t, lbl: 'Board ' + 'AB'[k] }); if (!keepAll && marks.length > 60) marks.shift(); }
+    chLog.push({ t, ch: k }); if (!keepAll && chLog.length > 200) chLog.shift();
+    curCh = k; pickK = k; pickAt = t;
+  }
+  const off = CHN[k].off || CHN[k].sat;
+  leadsOff = off;
+  leadsText = CHN[k].sat ? 'SIGNAL TOO BIG — Board ' + 'AB'[k] + ' is pinned at its limit (electrode moving or interference)' : 'LEADS OFF — Board ' + 'AB'[k] + ' not touching';
+  if (off) { push(t, NaN, isNaN(y[1 - k]) ? NaN : y[1 - k] / cfg.gain); return; }
+  push(t, y[k] / cfg.gain, isNaN(y[1 - k]) ? NaN : y[1 - k] / cfg.gain);
+}
+function noiseText() {                                // live readout: how noisy each board is right now, in mV at the electrode
+  return 'noise A ' + (CHN[0].off ? '--' : (CHN[0].noise / cfg.gain).toFixed(3)) + ' · B ' + (CHN[1].off ? '--' : (CHN[1].noise / cfg.gain).toFixed(3)) + ' mV';
+}
+
+/* ---------- Web Serial ---------- */
+const LINE = /^(\d+),(\d+),([01]),([01])(?:,(\d+))?$/;   // 5th field (mux channel) is optional
+const LINE2 = /^(\d+),(\d+),([01]),([01]),(\d+),([01])$/;   // two boards: time, mvA, LO+A, LO-A, mvB, LO+B
+let gotData = false;
+const SW = /^S,(\d+),(\d+)$/;                       // ESP32 says: switched at <ms>, the bad stretch began at <ms>
+function applyCut(from, to) {                        // erase the bad stretch from what is already stored
+  from -= 0.05;                                      // small safety margin before it
+  let first = -1;
+  for (let i = ts.length - 1; i >= 0 && ts[i] >= from; i--) if (ts[i] <= to) { vs[i] = NaN; den[i] = NaN; sg[i] = NaN; first = i; }
+  if (first >= 0 && first < denDone) denDone = Math.max(0, first - 150);   // the stretch before the cut gets re-smoothed without the bad part
+  pendingCut = { from, to };
+}
+function parseLine(s) {
+  const sw = SW.exec(s);
+  if (sw) { if (rec.on) recEvent(+sw[1], +sw[2]); applyCut(+sw[2] / 1000, +sw[1] / 1000); return; }
+  const m2 = LINE2.exec(s);
+  if (m2) {
+    onSample2(+m2[1] / 1000, +m2[2], m2[3] === '1', m2[4] === '1', +m2[5], m2[6] === '1', false);
+    if (!gotData) { gotData = true; setStatus('Live — receiving data from both boards', 'live'); }
+    return;
+  }
+  const m = LINE.exec(s);
+  if (!m) return;                                   // boot messages etc. are ignored
+  onSample(+m[1] / 1000, +m[2], m[3] === '1', m[4] === '1', m[5] === undefined ? undefined : +m[5]);
+  if (!gotData) { gotData = true; setStatus('Live — receiving data from ESP32', 'live'); }
+}
+let port = null, reader = null;
+const NEED_CHROME = 'USB is blocked in this preview — download the file and open it directly in Chrome (address bar should start with file:///)';
+
+async function connectSerial() {
+  if (!('serial' in navigator)) {
+    setStatus('This browser has no Web Serial — open this file in Chrome or Edge', 'warn'); return;
+  }
+  stopDemo();
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: cfg.baud });
+  } catch (e) {
+    const detail = e && e.name ? ' [' + e.name + (e.message ? ': ' + e.message : '') + ']' : '';
+    if (e && e.name === 'NotFoundError') setStatus('No port chosen', 'warn');
+    else if (e && e.name === 'SecurityError') setStatus(NEED_CHROME, 'warn');
+    else setStatus('Could not open the port' + detail + ' — something else may be using it; unplug and replug the USB cable and reload this page', 'warn');
+    port = null; return;
+  }
+  resetData(); gotData = false; source = 'serial';
+  el.connect.textContent = 'Disconnect';
+  setStatus('Connected — waiting for data', 'live');
+  const dec = new TextDecoderStream();
+  const closed = port.readable.pipeTo(dec.writable).catch(() => {});
+  reader = dec.readable.getReader();
+  let buf = '';
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        parseLine(buf.slice(0, i).trim());
+        buf = buf.slice(i + 1);
+      }
+      if (buf.length > 200) buf = buf.slice(-100);
+    }
+  } catch (e) {
+    setStatus('Connection lost', 'warn');
+  } finally {
+    try { reader.releaseLock(); } catch (e) {}
+    await closed;
+    try { await port.close(); } catch (e) {}
+    port = null; reader = null;
+    if (rec.on) recStop(true);
+    if (source === 'serial') { source = 'none'; if (el.status.textContent.indexOf('lost') < 0) setStatus('Not connected', ''); }
+    el.connect.textContent = 'Connect USB';
+  }
+}
+async function disconnectSerial() { if (reader) { try { await reader.cancel(); } catch (e) {} } }
+
+/* ---------- Web Bluetooth (same text lines as USB, sent in pieces) ---------- */
+const BLE_SVC = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const BLE_TX  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+let bleDev = null, bleWant = false, bleBuf = '', bleDec = null;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function bleOnData(ev) {
+  if (!bleDec) bleDec = new TextDecoder();
+  bleBuf += bleDec.decode(ev.target.value, { stream: true });
+  let i;
+  while ((i = bleBuf.indexOf('\n')) >= 0) { parseLine(bleBuf.slice(0, i).trim()); bleBuf = bleBuf.slice(i + 1); }
+  if (bleBuf.length > 200) bleBuf = bleBuf.slice(-100);
+}
+async function bleAttach(dev) {
+  bleBuf = ''; bleDec = null;
+  const server = await dev.gatt.connect();
+  const svc = await server.getPrimaryService(BLE_SVC);
+  const ch = await svc.getCharacteristic(BLE_TX);
+  ch.addEventListener('characteristicvaluechanged', bleOnData);
+  await ch.startNotifications();
+}
+function bleCleanup(msg) {
+  const d = bleDev; bleWant = false; bleDev = null;
+  if (d) { d.removeEventListener('gattserverdisconnected', bleLost); try { if (d.gatt.connected) d.gatt.disconnect(); } catch (e) {} }
+  if (rec.on) recStop(true);
+  if (source === 'ble') { source = 'none'; setStatus(msg || 'Not connected', msg ? 'warn' : ''); }
+  el.ble.textContent = 'Connect Bluetooth';
+}
+async function bleLost() {
+  if (!bleWant || !bleDev) return;
+  const dev = bleDev;
+  setStatus('Bluetooth dropped — reconnecting…', 'warn');
+  for (let k = 0; k < 40 && bleWant && bleDev === dev; k++) {
+    await sleep(1500);
+    if (!bleWant || bleDev !== dev) return;
+    try { await bleAttach(dev); setStatus('Live — reconnected', 'live'); return; } catch (e) {}
+  }
+  if (bleWant && bleDev === dev) bleCleanup('Bluetooth connection lost');
+}
+function disconnectBle() { bleCleanup(); }
+async function connectBle() {
+  if (!navigator.bluetooth) {
+    setStatus('This browser has no Web Bluetooth — open this file in Chrome or Edge on a computer, or Chrome on Android (not iPhone)', 'warn'); return;
+  }
+  stopDemo();
+  let dev;
+  try {
+    dev = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'ECG' }], optionalServices: [BLE_SVC] });
+  } catch (e) {
+    const detail = e && e.name ? ' [' + e.name + (e.message ? ': ' + e.message : '') + ']' : '';
+    if (e && e.name === 'NotFoundError') setStatus('No Bluetooth device chosen (the board shows up as ECG-ESP32; is it powered and running the v4 sketch?)', 'warn');
+    else if (e && e.name === 'SecurityError') setStatus(NEED_CHROME, 'warn');
+    else setStatus('Could not start Bluetooth' + detail, 'warn');
+    return;
+  }
+  bleDev = dev; bleWant = true;
+  resetData(); gotData = false; source = 'ble';
+  el.ble.textContent = 'Disconnect';
+  setStatus('Connecting to ' + (dev.name || 'Bluetooth') + '…', 'live');
+  dev.addEventListener('gattserverdisconnected', bleLost);
+  try {
+    await bleAttach(dev);
+    if (bleDev === dev) setStatus('Connected — waiting for data', 'live');
+  } catch (e) {
+    if (bleDev === dev) bleCleanup('Could not connect: ' + (e && e.message ? e.message : 'unknown error'));
+  }
+}
+
+/* ---------- demo (synthetic ECG, same pipeline) ---------- */
+let demoTimer = null, demoNext = 0;
+const gauss = (d, mu, s, a) => a * Math.exp(-0.5 * ((d - mu) / s) ** 2);
+function ecgModel(t) {
+  const rr = 0.83; let v = 0; const k0 = Math.round(t / rr);
+  for (let k = k0 - 1; k <= k0 + 1; k++) {
+    const d = t - (k * rr + 0.02 * Math.sin(k * 1.7));
+    v += gauss(d, -0.20, 0.025, 0.12) + gauss(d, -0.045, 0.010, -0.12) + gauss(d, 0, 0.012, 1.0)
+       + gauss(d, 0.04, 0.012, -0.22) + gauss(d, 0.27, 0.045, 0.30);
+  }
+  return v;
+}
+const nzHP = makeHighpass(10, FS), nzLP = makeLowpass(60, FS);
+function muscle(t) {                           // simulated muscle noise: bursts every 14 s, about 0.3 mV at its worst
+  const env = Math.max(0, Math.sin(2 * Math.PI * t / 14)) ** 0.6;
+  return env * 0.85 * nzLP.process(nzHP.process(Math.random() * 2 - 1));
+}
+function demoSample(t) {
+  const mv = ecgModel(t) + 0.05 * Math.sin(2 * Math.PI * MAINS * t) + 0.015 * (Math.random() - 0.5) * 2 + (cfg.demoNoise ? muscle(t) : 0);
+  onSample(t, 1650 + cfg.gain * mv, false, false);
+}
+function startDemo() {
+  if (port || bleDev) return;
+  resetData(); source = 'demo';
+  const now = performance.now() / 1000;
+  for (let k = -KEEP_S * FS * 0.4; k < 0; k++) demoSample(now + k / FS);
+  demoNext = now;
+  demoTimer = setInterval(() => {
+    const t = performance.now() / 1000;
+    while (demoNext <= t) { demoSample(demoNext); demoNext += 1 / FS; }
+  }, 16);
+  el.demo.classList.add('on'); el.demo.textContent = 'Stop demo'; el.lblNoise.hidden = false;
+  setStatus('Demo — simulated heartbeat', 'live');
+}
+function stopDemo() {
+  if (!demoTimer) return;
+  clearInterval(demoTimer); demoTimer = null;
+  if (rec.on) recStop(true);
+  el.lblNoise.hidden = true;
+  el.demo.classList.remove('on'); el.demo.textContent = 'Demo';
+  if (source === 'demo') { source = 'none'; setStatus('Not connected', ''); }
+}
+
+/* ---------- recording: the untouched signal, exactly as received ---------- */
+const rec = { on: false, n: 0, t: null, mv: null, f: null, ch: null, mvb: null, fb: null, dual: false, ev: [], off: 0, last: -Infinity, wall: 0 };
+function recStart() {
+  const cap = 1 << 16;
+  Object.assign(rec, { on: true, n: 0, t: new Float64Array(cap), mv: new Float32Array(cap), f: new Uint8Array(cap), ch: new Int16Array(cap), mvb: new Float32Array(cap).fill(NaN), fb: new Uint8Array(cap), dual: false, ev: [], off: 0, last: -Infinity, wall: Date.now() });
+  el.rec.classList.add('live'); el.rec.textContent = '■ Stop · 0:00';
+}
+function recGrow() {
+  const cap = rec.t.length * 2, g = (a, T) => { const b = new T(cap); b.set(a); return b; };
+  rec.t = g(rec.t, Float64Array); rec.mv = g(rec.mv, Float32Array); rec.f = g(rec.f, Uint8Array); rec.ch = g(rec.ch, Int16Array);
+  const nb = new Float32Array(cap).fill(NaN); nb.set(rec.mvb); rec.mvb = nb; rec.fb = g(rec.fb, Uint8Array);
+}
+function recAdd(t, mv, lp, lm, ch, mvb, lpb, lmb) {
+  if (t + rec.off <= rec.last) rec.off = rec.last - t + 1 / FS;      // ESP32 restarted: keep the recording's clock moving forward
+  if (rec.n === rec.t.length) recGrow();
+  const i = rec.n++;
+  rec.t[i] = t + rec.off; rec.mv[i] = mv; rec.f[i] = (lp ? 1 : 0) | (lm ? 2 : 0); rec.ch[i] = ch === undefined ? -1 : ch;
+  if (mvb !== undefined) { rec.dual = true; rec.mvb[i] = mvb; rec.fb[i] = (lpb ? 1 : 0) | (lmb ? 2 : 0); }
+  rec.last = rec.t[i];
+}
+function recEvent(swMs, badMs) { rec.ev.push({ i: rec.n, sw: swMs + rec.off * 1000, bad: badMs + rec.off * 1000 }); }
+function pad2(n) { return String(n).padStart(2, '0'); }
+function recCsv() {
+  const d = new Date(rec.wall), out = [];
+  out.push('# ECG Monitor recording, started ' + d.toString());
+  out.push('# time_ms = ESP32 clock. mv_a = amplifier output at the ESP32 pin in mV (the page divides by the module gain to get electrode mV).');
+  out.push('# lo_plus_a / lo_minus_a = leads-off flags. mux_ch_a = electrode the multiplexer was on.');
+  out.push('# The *_b columns are a second amplifier board read at the same moment (empty in single-board recordings). No multiplexer is used with two boards, so the mux_ch columns are empty.');
+  out.push('# A line "#S,switch_ms,bad_start_ms" is the ESP32 reporting an electrode switch and when the bad stretch began.');
+  out.push('time_ms,mv_a,lo_plus_a,lo_minus_a,mux_ch_a,mv_b,lo_plus_b,lo_minus_b,mux_ch_b');
+  let e = 0;
+  const evl = x => '#S,' + Math.round(x.sw) + ',' + Math.round(x.bad);
+  for (let i = 0; i < rec.n; i++) {
+    while (e < rec.ev.length && rec.ev[e].i <= i) out.push(evl(rec.ev[e++]));
+    const mv = rec.mv[i], c = rec.ch[i];
+    out.push(Math.round(rec.t[i] * 1000) + ',' + (Number.isInteger(mv) ? mv : mv.toFixed(2)) + ',' + (rec.f[i] & 1) + ',' + ((rec.f[i] >> 1) & 1) + ',' + (c < 0 ? '' : c) + (rec.dual && rec.mvb[i] === rec.mvb[i] ? ',' + (Number.isInteger(rec.mvb[i]) ? rec.mvb[i] : rec.mvb[i].toFixed(2)) + ',' + (rec.fb[i] & 1) + ',' + ((rec.fb[i] >> 1) & 1) + ',' : ',,,,'));
+  }
+  while (e < rec.ev.length) out.push(evl(rec.ev[e++]));
+  return out.join('\n') + '\n';
+}
+function downloadText(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/csv' })), a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+function recStop(save) {
+  if (!rec.on) return;
+  rec.on = false;
+  el.rec.classList.remove('live'); el.rec.textContent = '● Record';
+  if (rec.n < 2) return;
+  const d = new Date(rec.wall), name = 'ecg_' + d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + '_' + pad2(d.getHours()) + '-' + pad2(d.getMinutes()) + '-' + pad2(d.getSeconds()) + '.csv';
+  if (save) { downloadText(name, recCsv()); notice('Saved ' + name + ' (' + fmtT(rec.last - rec.t[0]) + ', ' + rec.n.toLocaleString() + ' samples) to your Downloads folder'); }
+}
+function notice(text) {                              // show a message in the status line for a few seconds
+  const prevT = el.status.textContent, prevC = el.dot.className;
+  el.status.textContent = text;
+  setTimeout(() => { if (el.status.textContent === text) { el.status.textContent = prevT; el.dot.className = prevC; } }, 5000);
+}
+addEventListener('beforeunload', e => { if (rec.on) { e.preventDefault(); e.returnValue = ''; } });
+
+/* ---------- review: open a saved recording and scroll through it ---------- */
+const rv = { on: false, t: 0, t0: 0, t1: 0, playing: false, speed: 1, name: '' };
+let rows = null, tlW = 0, tlStatic = null;
+const tlc = el.tl.getContext('2d');
+function fmtT(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const h = (sec / 3600) | 0, m = ((sec % 3600) / 60) | 0, x = sec % 60;
+  return (h ? h + ':' + pad2(m) : m) + ':' + pad2(x);
+}
+function parseRecording(text) {
+  const T = [], MV = [], F = [], C = [], MB = [], FB = [], EV = []; let last = -Infinity, dual = false;
+  for (const raw of text.split('\n')) {
+    const ln = raw.trim(); if (!ln) continue;
+    const m = /^#?S,(\d+),(\d+)$/.exec(ln);
+    if (m) { EV.push({ i: T.length, sw: +m[1], bad: +m[2] }); continue; }
+    if (ln.charCodeAt(0) === 35) continue;                                     // # comment
+    const f = ln.split(','), c0 = f[0].charCodeAt(0);
+    if (f.length < 4 || c0 < 48 || c0 > 57) continue;                          // header or junk
+    const t = +f[0] / 1000, mv = +f[1];
+    if (!(t > last) || !isFinite(mv)) continue;                                // time must keep moving forward
+    last = t; T.push(t); MV.push(mv);
+    F.push((f[2] === '1' ? 1 : 0) | (f[3] === '1' ? 2 : 0));
+    C.push(f[4] !== undefined && f[4] !== '' && isFinite(+f[4]) ? +f[4] : -1);
+    const hb = f[5] !== undefined && f[5] !== '' && isFinite(+f[5]);
+    if (hb) dual = true;
+    MB.push(hb ? +f[5] : NaN); FB.push((f[6] === '1' ? 1 : 0) | (f[7] === '1' ? 2 : 0));
+  }
+  return { n: T.length, t: Float64Array.from(T), mv: Float64Array.from(MV), f: Uint8Array.from(F), ch: Int16Array.from(C), mvb: Float64Array.from(MB), fb: Uint8Array.from(FB), dual, ev: EV };
+}
+// run the saved samples through exactly the same pipeline as live data, then smooth the whole thing with hindsight
+function replay() {
+  const R = rows; if (!R) return;
+  resetData(); keepAll = true; dualSeen = !!R.dual;
+  let e = 0;
+  for (let i = 0; i < R.n; i++) {
+    while (e < R.ev.length && R.ev[e].i <= i) { applyCut(R.ev[e].bad / 1000, R.ev[e].sw / 1000); e++; }
+    if (R.dual) ingestDual(R.t[i], R.mv[i], (R.f[i] & 1) !== 0, (R.f[i] & 2) !== 0, R.mvb[i], (R.fb[i] & 1) !== 0, (R.fb[i] & 2) !== 0);
+    else ingest(R.t[i], R.mv[i], (R.f[i] & 1) !== 0, (R.f[i] & 2) !== 0, R.ch[i] < 0 ? undefined : R.ch[i]);
+  }
+  for (; e < R.ev.length; e++) applyCut(R.ev[e].bad / 1000, R.ev[e].sw / 1000);
+  if (cfg.baseline === 'firm') {                       // zero-phase 0.5 Hz high-pass over each unbroken stretch: removes drift without shifting any beat
+    for (const arr of (R.dual ? [vs, vo] : [vs])) {
+      const n = ts.length; let i = 0;
+      while (i < n) {
+        if (arr[i] !== arr[i]) { i++; continue; }
+        const r0 = i; while (i < n && arr[i] === arr[i]) i++;
+        if (i - r0 > 40) { const y = DN.highpassZP(Float64Array.from(arr.slice(r0, i)), 0.5); for (let j = r0; j < i; j++) arr[j] = y[j - r0]; }
+      }
+    }
+  }
+  denoiseAll();
+  rv.t0 = ts[0]; rv.t1 = ts[ts.length - 1];
+  setReviewT(rv.t);
+  buildTimeline();
+}
+function setReviewT(t) {
+  const lo = Math.min(rv.t1, rv.t0 + cfg.win);
+  rv.t = Math.min(rv.t1, Math.max(lo, t));
+}
+function niceStep(span, W) {
+  const want = span / (W / 80);
+  for (const x of [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 86400]) if (x >= want) return x;
+  return 86400;
+}
+function buildTimeline() {
+  const dpr = window.devicePixelRatio || 1, W = Math.max(200, Math.floor(el.tl.clientWidth || 800)), H = 64;
+  tlW = W; el.tl.width = Math.round(W * dpr); el.tl.height = Math.round(H * dpr);
+  const span = Math.max(1e-6, rv.t1 - rv.t0), n = ts.length;
+  const cnt = new Float32Array(W), sum = new Float32Array(W), chc = {}, perCh = {};
+  let ci = 0, curc = -1, usable = 0;
+  for (let i = 0; i < n; i++) {
+    while (ci < chLog.length && chLog[ci].t <= ts[i]) curc = chLog[ci++].ch;
+    if (vs[i] !== vs[i]) continue;
+    const col = Math.min(W - 1, ((ts[i] - rv.t0) / span * W) | 0);
+    cnt[col]++; sum[col] += sg[i] || 0; usable++;
+    (chc[curc] || (chc[curc] = new Float32Array(W)))[col]++;
+    perCh[curc] = (perCh[curc] || 0) + 1;
+  }
+  const off = document.createElement('canvas'); off.width = Math.round(W * dpr); off.height = Math.round(H * dpr);
+  const g = off.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#202228'; g.fillRect(0, 0, W, H);
+  const chs = Object.keys(chc).map(Number);
+  for (let x = 0; x < W; x++) {
+    if (!cnt[x]) { g.fillStyle = '#2b2e35'; g.fillRect(x, 6, 1, 44); continue; }
+    let best = chs[0], bv = -1;
+    for (const c of chs) if (chc[c][x] > bv) { bv = chc[c][x]; best = c; }
+    const nz = Math.min(1, Math.max(0.06, sum[x] / cnt[x] / 0.15));
+    g.fillStyle = CHCOL[(best + 1) % CHCOL.length]; g.fillRect(x, 0, 1, 5);
+    g.globalAlpha = 0.85; g.fillRect(x, 50 - nz * 44, 1, nz * 44); g.globalAlpha = 1;
+  }
+  g.fillStyle = '#8b8f99'; g.font = '10px -apple-system,Segoe UI,sans-serif'; g.textAlign = 'left';
+  const st = niceStep(span, W);
+  for (let tt = 0; tt <= span; tt += st) { const x = tt / span * W; g.fillRect(x, 50, 1, 4); g.fillText(fmtT(tt), Math.min(x + 3, W - 30), 62); }
+  tlStatic = off;
+  const names = Object.keys(perCh).map(Number).sort((a, b) => a - b), tot = n || 1;
+  el.rvSum.innerHTML = '<b>' + fmtT(span) + '</b> recorded · ' + names.map(c =>
+    '<span class="sw" style="background:' + CHCOL[(c + 1) % CHCOL.length] + '"></span>' + (c < 0 ? 'signal' : dualSeen ? 'Board ' + 'AB'[c] : 'electrode C' + c) + ' <b>' + Math.round(perCh[c] / tot * 100) + '%</b>').join('')
+    + '<span class="sw" style="background:#2b2e35;outline:1px solid #555"></span>no usable signal (leads off, settling, removed) <b>' + Math.round((n - usable) / tot * 100) + '%</b>'
+    + ' · ' + marks.length + (dualSeen ? ' board switch' + (marks.length === 1 ? '' : 'es') : ' electrode swap' + (marks.length === 1 ? '' : 's')) + ' · bar height = how noisy that moment was';
+}
+function drawTimeline(tv) {
+  if (!tlStatic) return;
+  const dpr = window.devicePixelRatio || 1, span = Math.max(1e-6, rv.t1 - rv.t0);
+  tlc.setTransform(1, 0, 0, 1, 0, 0); tlc.drawImage(tlStatic, 0, 0);
+  tlc.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const x1 = (tv - rv.t0) / span * tlW; let x0 = x1 - cfg.win / span * tlW; if (x1 - x0 < 3) x0 = x1 - 3;
+  tlc.fillStyle = 'rgba(255,255,255,.14)'; tlc.fillRect(x0, 0, x1 - x0, 52);
+  tlc.strokeStyle = '#fff'; tlc.lineWidth = 1.5; tlc.strokeRect(x0, 0.75, x1 - x0, 50.5);
+}
+function setReviewUI(on) {
+  el.rvbar.hidden = !on; el.live.hidden = !on; el.freeze.hidden = on; el.rec.disabled = on; el.delay.disabled = on;
+  el.cv.style.cursor = on ? 'grab' : ''; el.cv.style.touchAction = on ? 'none' : '';
+  layout();
+}
+async function openRecording(file) {
+  let parsed;
+  try { parsed = parseRecording(await file.text()); } catch (e) { setStatus('Could not read that file', 'warn'); return; }
+  if (!parsed.n) { setStatus('No ECG rows found in that file — is it a recording saved by this page?', 'warn'); return; }
+  if (rec.on) recStop(true);
+  stopDemo();
+  if (port) { await disconnectSerial(); for (let k = 0; k < 40 && port; k++) await new Promise(r => setTimeout(r, 50)); }
+  if (bleDev) disconnectBle();
+  rows = parsed; rv.name = file.name; rv.on = true; rv.playing = false; frozen = false; source = 'none';
+  el.freeze.classList.remove('on'); el.freeze.textContent = 'Freeze';
+  setReviewUI(true);
+  rv.t = 0; rv.t0 = 0; rv.t1 = 0;
+  replay();
+  rv.t = rv.t0 + cfg.win; setReviewT(rv.t);
+  el.rvFile.textContent = file.name;
+  setStatus('Review — ' + file.name, '');
+  layout();
+}
+function exitReview() {
+  rv.on = false; rv.playing = false; rows = null; keepAll = false; tlStatic = null;
+  resetData(); setReviewUI(false); setStatus('Not connected', '');
+}
+function toLay(t) { return cfg.gapMode === 'splice' ? t - shiftAt(gapList(), t) : t; }
+function fromLay(Tt) {                                 // inverse of toLay (first real time that lands on layout time Tt)
+  if (cfg.gapMode !== 'splice') return Tt;
+  const gaps = gapList(); let lo = rv.t0, hi = rv.t1;
+  for (let k = 0; k < 40; k++) { const m = (lo + hi) / 2; if (m - shiftAt(gaps, m) >= Tt) hi = m; else lo = m; }
+  return hi;
+}
+function toggleReviewPlay() {
+  if (!rv.playing && rv.t >= rv.t1 - 0.01) setReviewT(rv.t0 + cfg.win);
+  rv.playing = !rv.playing;
+}
+el.rvPlay.onclick = () => { el.rvPlay.blur(); toggleReviewPlay(); };
+el.rvBack.onclick = () => { el.rvBack.blur(); setReviewT(rv.t - 10); };
+el.rvFwd.onclick = () => { el.rvFwd.blur(); setReviewT(rv.t + 10); };
+el.rvSpeed.onchange = () => { rv.speed = +el.rvSpeed.value; el.rvSpeed.blur(); };
+function tlSeek(e) {
+  const r = el.tl.getBoundingClientRect(), f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+  setReviewT(rv.t0 + f * (rv.t1 - rv.t0) + cfg.win / 2);          // the clicked moment ends up in the middle of the screen
+}
+el.tl.addEventListener('pointerdown', e => { if (!rv.on) return; el.tl.setPointerCapture(e.pointerId); tlSeek(e); });
+el.tl.addEventListener('pointermove', e => { if (rv.on && e.buttons) tlSeek(e); });
+let drag = null;
+el.cv.addEventListener('pointerdown', e => { if (!rv.on) return; drag = { x: e.clientX, T: toLay(rv.t) }; el.cv.setPointerCapture(e.pointerId); el.cv.style.cursor = 'grabbing'; });
+el.cv.addEventListener('pointermove', e => { if (drag) setReviewT(fromLay(drag.T - (e.clientX - drag.x) / (MM_PER_S * L.mm))); });
+const endDrag = () => { drag = null; if (rv.on) el.cv.style.cursor = 'grab'; };
+el.cv.addEventListener('pointerup', endDrag); el.cv.addEventListener('pointercancel', endDrag);
+el.cv.addEventListener('wheel', e => {
+  if (!rv.on) return; e.preventDefault();
+  const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  setReviewT(fromLay(toLay(rv.t) + d / (MM_PER_S * L.mm)));
+}, { passive: false });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) openRecording(f); });
+
+/* ---------- UI ---------- */
+function setStatus(text, cls) { el.status.textContent = text; el.dot.className = 'dot ' + (cls || ''); }
+function setFrozen(f) {
+  frozen = f; frozenAt = (lastT || 0) - effDelay();
+  el.freeze.classList.toggle('on', f); el.freeze.textContent = f ? 'Resume' : 'Freeze';
+}
+el.connect.onclick = () => {
+  el.connect.blur(); if (rv.on) exitReview();
+  if (port) { disconnectSerial(); return; }
+  if (bleDev) { notice('Disconnect Bluetooth first'); return; }
+  connectSerial();
+};
+el.ble.onclick = () => {
+  el.ble.blur(); if (rv.on) exitReview();
+  if (bleDev) { disconnectBle(); return; }
+  if (port) { notice('Disconnect USB first'); return; }
+  connectBle();
+};
+el.demo.onclick = () => { el.demo.blur(); if (rv.on) exitReview(); demoTimer ? stopDemo() : startDemo(); };
+el.rec.onclick = () => {
+  el.rec.blur();
+  if (rec.on) { recStop(true); return; }
+  if (source === 'none' || rv.on) { notice('Press Connect USB, Connect Bluetooth or Demo first, then Record'); return; }
+  recStart();
+};
+el.open.onclick = () => { el.open.blur(); el.fileIn.value = ''; el.fileIn.click(); };
+el.fileIn.onchange = () => { const f = el.fileIn.files[0]; if (f) openRecording(f); };
+el.live.onclick = () => { el.live.blur(); exitReview(); };
+el.freeze.onclick = () => { el.freeze.blur(); setFrozen(!frozen); };
+addEventListener('keydown', e => {            // Space = freeze / resume (not while typing in a field)
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+  if (rv.on) {                                // review: Space = play/pause, arrows = 1 s (Shift: 10 s), Home/End
+    const step = e.shiftKey ? 10 : 1;
+    if (e.code === 'Space') { e.preventDefault(); toggleReviewPlay(); }
+    else if (e.code === 'ArrowLeft') { e.preventDefault(); setReviewT(rv.t - step); }
+    else if (e.code === 'ArrowRight') { e.preventDefault(); setReviewT(rv.t + step); }
+    else if (e.code === 'Home') { e.preventDefault(); setReviewT(-Infinity); }
+    else if (e.code === 'End') { e.preventDefault(); setReviewT(Infinity); }
+    return;
+  }
+  if (e.code === 'Space') { e.preventDefault(); setFrozen(!frozen); }
+});
+el.win.onchange = () => { cfg.win = +el.win.value; saveCfg(); layout(); el.win.blur(); };
+el.mode.onchange = () => { cfg.mode = el.mode.value; saveCfg(); el.mode.blur(); };
+el.gain.onchange = () => { cfg.gain = Math.max(100, +el.gain.value || 1100); el.gain.value = cfg.gain; saveCfg(); if (rv.on) replay(); };
+el.smooth.onchange = () => { cfg.smooth = el.smooth.checked; notch.reset(); lowpass.reset(); saveCfg(); if (rv.on) replay(); };
+el.ignore.onchange = () => { cfg.ignore = el.ignore.checked; saveCfg(); if (rv.on) replay(); };
+el.baseSel.onchange = () => { cfg.baseline = el.baseSel.value; saveCfg(); el.baseSel.blur(); if (rv.on) replay(); else needInit = true; };
+el.pick.onchange = () => { cfg.pick = el.pick.value; saveCfg(); el.pick.blur(); if (rv.on) replay(); };
+el.other.onchange = () => { cfg.other = el.other.checked; saveCfg(); el.other.blur(); };
+el.baud.onchange = () => { cfg.baud = +el.baud.value; saveCfg(); el.baud.blur(); };
+el.den.onchange = () => { cfg.denoise = el.den.checked; saveCfg(); el.den.blur(); };
+el.under.onchange = () => { cfg.under = el.under.checked; saveCfg(); el.under.blur(); };
+el.noise.onchange = () => { cfg.demoNoise = el.noise.checked; saveCfg(); el.noise.blur(); };
+el.str.oninput = () => { cfg.dstr = +el.str.value; showStr(); saveCfg(); };
+el.str.onchange = () => {                      // strength changed: redo the smoothing (whole recording, or the last few seconds live)
+  el.str.blur();
+  if (rv.on) { denoiseAll(); buildTimeline(); } else denDone = Math.max(0, Math.min(denDone, ts.length - (DEN_WIN_S * FS - DEN_MARGIN)));
+};
+el.gapSel.onchange = () => { cfg.gapMode = el.gapSel.value; saveCfg(); el.gapSel.blur(); };
+el.delay.oninput = () => { cfg.delay = +el.delay.value; skip = 0; showDelay(); saveCfg(); };
+el.delay.onchange = () => el.delay.blur();
+el.hide.onchange = () => { cfg.hideSettle = el.hide.checked; saveCfg(); el.hide.blur(); if (rv.on) replay(); };
+
+/* ---------- layout: one small square = 1 mm = 40 ms = 0.1 mV, in both directions ---------- */
+let L = { w: 800, h: 400, mm: 3, mmTall: 80, dpr: 1 };
+function layout() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(300, el.main.clientWidth - 32);
+  const mm = w / (cfg.win * MM_PER_S);                       // CSS pixels per millimetre
+  const availH = el.main.clientHeight - 32 - el.info.offsetHeight - 10 - (el.rvbar.hidden ? 0 : el.rvbar.offsetHeight + 10);
+  let mmTall = Math.floor(availH / mm / 10) * 10;            // whole large squares, centre on a major line
+  mmTall = Math.max(40, Math.min(160, mmTall));
+  const h = mmTall * mm;
+  L = { w, h, mm, mmTall, dpr };
+  el.cv.width = Math.round(w * dpr); el.cv.height = Math.round(h * dpr);
+  el.cv.style.height = h + 'px';
+  if (rv.on && tlStatic && Math.floor(el.tl.clientWidth) !== tlW) buildTimeline();
+  el.info.innerHTML = '<b>25 mm/s</b> · <b>10 mm/mV</b> · small square = 40 ms and 0.1 mV · large square = 200 ms and 0.5 mV · ' + cfg.win + ' s on screen';
+}
+new ResizeObserver(layout).observe(el.main);
+addEventListener('resize', layout);
+
+/* ---------- drawing ---------- */
+function upper(arr, x) {                 // first index with arr[i] > x
+  let lo = 0, hi = arr.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] > x) hi = m; else lo = m + 1; }
+  return lo;
+}
+function drawGrid() {
+  const { w, h, mm, dpr } = L, nx = Math.round(cfg.win * MM_PER_S), ny = Math.round(L.mmTall);
+  const px = v => Math.round(v * dpr) / dpr;
+  ctx.fillStyle = PAPER; ctx.fillRect(0, 0, w, h);
+  if (mm >= 2.4) {
+    ctx.strokeStyle = GRID_MINOR; ctx.lineWidth = 1; ctx.beginPath();
+    for (let i = 0; i <= nx; i++) if (i % 5) { const x = px(i * mm); ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+    for (let j = 0; j <= ny; j++) if (j % 5) { const y = px(j * mm); ctx.moveTo(0, y); ctx.lineTo(w, y); }
+    ctx.stroke();
+  }
+  ctx.strokeStyle = GRID_MAJOR; ctx.lineWidth = 1.4; ctx.beginPath();
+  for (let i = 0; i <= nx; i += 5) { const x = px(i * mm); ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+  for (let j = 0; j <= ny; j += 5) { const y = px(j * mm); ctx.moveTo(0, y); ctx.lineTo(w, y); }
+  ctx.stroke();
+}
+function drawCalibration() {                 // standard 1 mV test pulse: 10 mm high, 5 mm wide
+  const { h, mm } = L, x0 = 2 * mm, yb = h - 5 * mm;
+  ctx.strokeStyle = TRACE; ctx.lineWidth = 1.6; ctx.lineJoin = 'miter'; ctx.beginPath();
+  ctx.moveTo(x0, yb); ctx.lineTo(x0 + 2 * mm, yb); ctx.lineTo(x0 + 2 * mm, yb - 10 * mm);
+  ctx.lineTo(x0 + 7 * mm, yb - 10 * mm); ctx.lineTo(x0 + 7 * mm, yb); ctx.lineTo(x0 + 9 * mm, yb);
+  ctx.stroke();
+  ctx.fillStyle = '#8a5c5c'; ctx.font = Math.max(10, 2.4 * mm) + 'px -apple-system,Segoe UI,sans-serif';
+  ctx.fillText('1 mV', x0 + 10.5 * mm, yb - 4 * mm);
+}
+/* Gaps = stretches with no usable signal around each mux switch (erased bad part + settling).
+   Splice mode removes them from the time axis so the two sides join into one line. */
+function gapList() {
+  const out = []; let prevE = -Infinity;
+  for (const m of marks) {
+    if (m.lbl) continue;                              // switching between two boards has no settling gap
+    let g0 = m.from === undefined ? m.t : m.from;
+    const g1 = m.t + (cfg.hideSettle ? SETTLE_S : 0);
+    g0 = Math.max(g0, prevE);
+    if (g1 <= g0) continue;
+    out.push({ s: g0, e: g1 }); prevE = g1;
+  }
+  return out;
+}
+function shiftAt(gaps, t) {                 // total gap time removed before real time t
+  let sh = 0;
+  for (const g of gaps) { if (t <= g.s) break; sh += Math.min(t, g.e) - g.s; }
+  return sh;
+}
+function inGap(gaps, t) { for (const g of gaps) if (t >= g.s && t <= g.e) return true; return false; }
+
+function drawTrace(tView, gaps, useDen, color, lw, main, arr) {
+  const A = arr || vs;
+  const { w, h, mm } = L, win = cfg.win, yc = h / 2, pxPerS = MM_PER_S * mm, ppmv = MM_PER_MV * mm;
+  const sweep = cfg.mode === 'sweep', gap = 0.45, gm = cfg.gapMode, spl = gm === 'splice';
+  const T = t => spl ? t - shiftAt(gaps, t) : t;       // time as laid out on the paper
+  const tv = T(tView);
+  const from = sweep ? tv - win + gap : tv - win;
+  ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.beginPath();
+  let pen = false, lastX = -1;
+  for (let i = upper(ts, from); i < ts.length && ts[i] <= tView; i++) {
+    let v = useDen ? dval(i) : A[i];
+    if (gaps.length && inGap(gaps, ts[i])) {
+      if (spl) continue;                               // joined: skip the gap, the pen stays down
+      if (gm === 'flat') v = 0; else { pen = false; continue; }
+    } else if (v !== v) { pen = false; continue; }     // leads off etc.
+    const Tt = T(ts[i]);
+    if (Tt < from) continue;
+    const x = sweep ? (Tt % win) * pxPerS : (Tt - (tv - win)) * pxPerS;
+    const y = Math.max(-5, Math.min(h + 5, yc - v * ppmv));
+    if (pen && x < lastX) pen = false;                           // sweep wrapped around
+    if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y);
+    lastX = x;
+  }
+  ctx.stroke();
+  if (sweep && main) {
+    const xc = (tv % win) * pxPerS;
+    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(xc, 0); ctx.lineTo(xc, h); ctx.stroke();
+  }
+}
+function drawMarks(tView, gaps) {
+  const { w, h, mm } = L, win = cfg.win, pxPerS = MM_PER_S * mm, sweep = cfg.mode === 'sweep';
+  const spl = cfg.gapMode === 'splice';
+  const T = t => spl ? t - shiftAt(gaps, t) : t;
+  const tv = T(tView), from = tv - win;
+  const fs = Math.max(11, 2.6 * mm);
+  const px = t => sweep ? (t % win) * pxPerS : (t - from) * pxPerS;
+  ctx.save();
+  ctx.font = '600 ' + fs + 'px -apple-system,Segoe UI,sans-serif';
+  if (!spl) {                                          // shaded band over the gap (blank / flat modes)
+    for (const m of marks) {
+      if (m.lbl) continue;                              // two-board switches have no settling gap
+      const a = Math.max(m.from === undefined ? m.t : m.from, from), b = Math.min(m.t + (cfg.hideSettle ? SETTLE_S : 0), tView);
+      if (b <= a) continue;
+      const x0 = px(a), x1 = px(b);
+      ctx.fillStyle = 'rgba(47,111,237,0.09)';
+      if (x1 >= x0) ctx.fillRect(x0, 0, x1 - x0, h);
+      else { ctx.fillRect(x0, 0, w - x0, h); ctx.fillRect(0, 0, x1, h); }
+      ctx.fillStyle = '#2f6fed'; ctx.setLineDash([]);
+      ctx.fillText('settling…', x0 + 4, h - 8 - fs - 4);
+    }
+  }
+  ctx.setLineDash([6, 4]); ctx.lineWidth = 1.5; ctx.strokeStyle = '#2f6fed'; ctx.fillStyle = '#2f6fed';
+  for (const m of marks) {
+    const tm = spl ? (m.from === undefined ? m.t : m.from) : m.t;   // splice: mark the join, not the switch
+    const Tm = T(tm);
+    if (Tm < from || Tm > tv) continue;
+    const x = px(Tm);
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    ctx.fillText(m.lbl ? '→ ' + m.lbl : (spl ? '✂ joined → C' : '→ C') + m.ch, x + 4, h - 8);
+  }
+  if (spl && inGap(gaps, tView)) {                     // waiting for the new electrode: the paper pauses
+    ctx.setLineDash([]); ctx.textAlign = 'right';
+    ctx.fillText('settling… paused', w - 10, h - 8);
+  }
+  ctx.restore();
+}
+let lastFrame = 0, lastRvText = '', lastRecText = '';
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dtr = lastFrame ? Math.min(0.25, (now - lastFrame) / 1000) : 0; lastFrame = now || 0;
+  ctx.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
+  drawGrid();
+  let tShow = 0;
+  const gaps = gapList();
+  if (ts.length) {
+    if (rv.on) {
+      if (rv.playing) {
+        rv.t += dtr * rv.speed;
+        if (cfg.gapMode === 'splice') for (const g of gaps) if (rv.t > g.s && rv.t < g.e) rv.t = g.e;   // play straight over the joins
+        if (rv.t >= rv.t1) { rv.t = rv.t1; rv.playing = false; }
+      }
+      tShow = rv.t;
+    } else if (frozen) tShow = frozenAt;
+    else {
+      const latest = ts[ts.length - 1];
+      tShow = latest - effDelay();
+      if (cfg.gapMode === 'splice' && gaps.length) {
+        // The paper keeps moving at normal speed. When it reaches a gap whose end has already arrived, jump over it.
+        tShow = Math.min(latest, tShow + skip);
+        for (const g of gaps) if (tShow > g.s && tShow < g.e && latest >= g.e) { skip += g.e - tShow; tShow = g.e; }
+      }
+    }
+    if (dualSeen && cfg.other) drawTrace(tShow, gaps, false, '#2f6fed', 1.2, false, vo);
+    if (cfg.denoise && cfg.under) drawTrace(tShow, gaps, false, TRACE_RAW, 1.6, false);
+    drawTrace(tShow, gaps, cfg.denoise, TRACE, 2, true);
+    drawMarks(tShow, gaps);
+  } else {
+    ctx.fillStyle = '#9a7b7b'; ctx.textAlign = 'center';
+    ctx.font = '600 ' + Math.max(14, 3 * L.mm) + 'px -apple-system,Segoe UI,sans-serif';
+    ctx.fillText('Press “Connect USB” or “Connect Bluetooth”, or “Demo” to preview', L.w / 2, L.h / 2 - 8);
+    ctx.textAlign = 'start';
+  }
+  drawCalibration();
+  const showOff = !rv.on && leadsOff && ts.length && !frozen;
+  el.banner.hidden = !showOff;
+  if (showOff) el.banner.textContent = leadsText;
+  const dn = cfg.denoise ? ' · denoised' : '';
+  el.tag.className = 'tag' + (rv.on ? ' rev' : frozen ? ' frozen' : (ts.length ? ' live' : ''));
+  el.tag.textContent = rv.on ? 'REVIEW' + (cfg.denoise ? ' · denoised' : ' · raw')
+    : frozen ? '❚❚ FROZEN — Space to resume'
+    : (ts.length ? '● LIVE' + (effDelay() > 0 ? ' · ' + effDelay().toFixed(1) + ' s behind' : '') + dn : '');
+  el.tag.hidden = !el.tag.textContent;
+  {
+    const tv = tShow;
+    let shown = null;
+    for (const e of chLog) if (e.t <= tv) shown = e.ch;
+    if (shown === null && chLog.length) shown = chLog[0].ch;
+    el.chTag.hidden = shown === null || !ts.length;
+    if (shown !== null) el.chTag.textContent = dualSeen ? 'Board ' + 'AB'[shown] + (cfg.pick === 'auto' ? ' (best)' : '') + (!rv.on && !frozen ? ' · ' + noiseText() : '') : 'Electrode C' + shown;
+    el.lblPick.hidden = !dualSeen;
+  }
+  if (ts.length && (!leadsOff || rv.on || frozen)) updateBpm(tShow, now || 0); else bpmVal = null;
+  el.bpm.hidden = !ts.length;
+  el.bpm.className = 'bpm' + (bpmVal === null ? ' dim' : '');
+  el.bpm.innerHTML = '♥ ' + (bpmVal === null ? '--' : Math.round(bpmVal)) + ' <small>BPM</small>';
+  if (rv.on && ts.length) {
+    const txt = fmtT(tShow - rv.t0) + ' / ' + fmtT(rv.t1 - rv.t0) + (rv.playing ? '|p' : '|s');
+    if (txt !== lastRvText) {
+      lastRvText = txt;
+      el.rvTime.textContent = txt.split('|')[0];
+      el.rvPlay.textContent = rv.playing ? '❚❚ Pause' : '▶ Play';
+    }
+    drawTimeline(tShow);
+  }
+  if (rec.on && rec.n) {
+    const txt = '■ Stop · ' + fmtT(rec.last - rec.t[0]);
+    if (txt !== lastRecText) { lastRecText = txt; el.rec.textContent = txt; }
+  }
+}
+
+layout();
+requestAnimationFrame(frame);
+if (window.top !== window.self) setStatus(NEED_CHROME + ' (Demo still works here)', 'warn');
+})();
+</script>
+</body>
+</html>
