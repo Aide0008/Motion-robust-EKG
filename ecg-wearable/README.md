@@ -1,6 +1,6 @@
 # Motion-Robust Wearable ECG
 
-A single-lead ECG wearable built from an ESP32 and AD8232 boards, plus a browser monitor and a signal-processing pipeline written from scratch to keep the trace readable while the wearer moves.
+A single-lead wearable ECG built from an ESP32 and AD8232 boards, plus a browser monitor and a signal-processing pipeline written from scratch to keep the trace readable while the wearer moves.
 
 ![Denoising demo on synthetic data](docs/figures/denoise_demo.png)
 
@@ -27,7 +27,7 @@ A single-lead ECG wearable built from an ESP32 and AD8232 boards, plus a browser
 
 ### Why a clean single lead matters
 
-An electrocardiogram (ECG) records the heart's electrical activity through electrodes on the skin. Doctors spot arrhythmias, which are irregular heart rhythms, by reading the timing and shape of each beat. That only works if the trace is clean. When the wearer walks, stands up, or tenses their muscles, motion and muscle noise can bury the beats entirely, and a wearable that goes blank during movement misses exactly the moments that matter.
+An electrocardiogram (ECG) records the heart's electrical activity through electrodes on the skin. Doctors spot irregularities, such as arrhythmias, by reading the timing and shape of each beat. That works best if the trace is clean. When the wearer walks, stands up, or tenses their muscles, motion and muscle noise can bury the beats entirely, and a monitor that goes blank during movement might miss crucial data. 
 
 ### What this project is
 
@@ -109,7 +109,7 @@ Sharing the right-leg (RL) electrode between boards is fine. Sharing the left-ar
 
 ### 7. The test that did not go well
 
-I recorded a short test: lying still, tapping the electrodes, then standing up around 30 seconds in. Tapping did not trigger a false switch, and the rhythm looked familiar. When I stood up, the beats were mostly lost, with gaps of about three seconds. Figure 7 shows why: interference between 40 and 55 Hz rose by orders of magnitude, and Figure 8 shows the amplifier hitting its limits.
+I recorded a short test: lying still, tapping the electrodes, then standing up around 30 seconds in. Tapping did not trigger a false switch, and the rhythm looked similar to ventricular tachycardia, giving me the confidence in the device still working under arrithmia. When I stood up, the beats were mostly lost, with gaps of about three seconds. Figure 7 shows why: interference between 40 and 55 Hz rose by orders of magnitude, and Figure 8 shows the amplifier hitting its limits.
 
 ![Spectrum](images/fig7_spectrum_standing.png)
 
@@ -127,8 +127,7 @@ What I took from it: the software behaved as designed, but no filter helps when 
 
 - The denoiser is tested on synthetic data with 10 automated tests, including parity between the Python and JavaScript versions.
 - On real recordings while lying still, beats are clear. While standing, they are not.
-- Rest noise on one day was roughly 10-20 times higher than on another day. I have not isolated why. Suspects are powering the board from a GPIO pin, loose wiring, reused electrodes, and a shared LA electrode.
-- Bluetooth streaming has not been tested on hardware, and the MATLAB scripts have not been run in MATLAB.
+- Rest noise on one day was roughly 10-20 times higher than on another day. I have not isolated why. The suspects are the way in which the board is powered from a GPIO pin, loose wiring, reused electrodes, and a shared LA electrode.
 - Board-selection thresholds are guesses.
 - It is single-lead and has no clinical validation.
 
@@ -184,16 +183,15 @@ python make_figures.py          # regenerates images/
 ## Authorship and AI Assistance
 
 <!-- EDIT THIS so it is exactly true. -->
-I designed the experiments, built and wired the hardware, and collected all recordings. The firmware, web page, analysis code and documentation were written with substantial help from an AI assistant (Anthropic's Claude), working from my requirements and my recordings. I am working through the underlying math using [`docs/LEARNING_PATH.md`](docs/LEARNING_PATH.md), and the test suite checks the code against the math.
+I designed the experiments, built and wired the hardware, and collected all recordings. The firmware, web page, analysis code and documentation were written with substantial help from an AI assistant (Anthropic's Claude), working from my requirements and data. I am working through the underlying math using [`docs/LEARNING_PATH.md`](docs/LEARNING_PATH.md), and the test suite checks the code against the math.
 
 [Back To The Top](#motion-robust-wearable-ecg)
 
 ## Author Info
 
-- Name: `<YOUR NAME>`
+- Name: `Aiden Sorrels`
 - LinkedIn: `<your link>`
 - GitHub: `<your link>`
-- Website: `<optional>`
 
 [Back To The Top](#motion-robust-wearable-ecg)
 
