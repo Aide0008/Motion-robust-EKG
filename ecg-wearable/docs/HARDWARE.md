@@ -4,7 +4,7 @@
 - ESP32 dev board, 30-pin (DOIT-style), Arduino core 2.x or 3.x
 - 1-2 × AD8232 single-lead ECG modules (gain ≈ 1100 on the module, output centred at half the supply voltage)
 - CD74HC4067 16-channel analog multiplexer (only for the single-amplifier variant)
-- Disposable gel electrodes, 3-lead cable per board
+- Disposable gel electrodes, 4-lead cables
 - Breadboard and jumpers (note the interference lessons below)
 
 ## ESP32 pin facts that shaped the design
