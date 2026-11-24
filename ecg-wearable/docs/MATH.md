@@ -38,10 +38,6 @@ A real anti-alias scheme would sample at e.g. 1 kHz, low-pass digitally, then ke
 **Throughput.** One two-board line such as `100000,2533,0,0,2078,0\n` is about 24 bytes → `250 × 24 = 6 kB/s`. Serial at 115200
 baud (8N1) carries 11.5 kB/s (52 % used, too tight), at 460800 baud 46 kB/s (13 %).
 
-> **Check yourself:** (1) Which frequency does a 190 Hz tone appear at when sampled at 250 Hz? (2) Why can't a digital filter
-> after sampling remove an aliased tone? (3) What is the time resolution of 250 Hz sampling, and what does that mean for
-> measuring an RR interval?
-
 ---
 
 ## 2. Digital filters
@@ -69,9 +65,6 @@ and for both $a_1 = -2\cos\omega_0 / a_0$, $a_2 = (1-\alpha)/a_0$.
 gain at $f_0$ is exactly 0; the poles sit just inside, so the notch is narrow. Bandwidth $\approx f_0/Q$; with $Q=20$ at
 60 Hz that is 3 Hz wide. Mains is 60 Hz in the US (50 Hz elsewhere).
 
-> **Check yourself:** Show that $H(1)$ for the low-pass (DC gain, $z=1$) equals 1 and for the high-pass equals 0. Show the
-> notch has $H(e^{j\omega_0}) = 0$ by putting $z = e^{j\omega_0}$ in the numerator.
-
 ### 2.2 Starting without a transient
 
 A filter that starts with zero memory "rings" at the beginning of a record. `_steady_state_zi` initialises the memory so a
@@ -91,9 +84,6 @@ $$ Y(e^{j\omega}) = H(e^{j\omega})\,\overline{H(e^{j\omega})}\,X = |H(e^{j\omega
 - the phase cancels (zero delay) and the magnitude is squared (twice as steep; a "−3 dB" corner becomes −6 dB). The price: the output
 at time $t$ depends on the future, so it needs the whole record - fine for Review, impossible for a live display. The live
 display therefore uses a *fixed lag* (section 5.5).
-
-> **Check yourself:** Why does forward-backward filtering double the filter order in the magnitude response but not the delay?
-> What goes wrong if you forward-filter the beat detector's output and then threshold it - does the peak still line up with the R wave?
 
 ---
 
