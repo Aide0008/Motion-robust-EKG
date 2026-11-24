@@ -102,7 +102,7 @@ Both boards are always recorded. The page scores each by noise divided by beat s
 ![Wiring diagram](images/fig6A_wiring_diagram.png)
 *Figure 6A : Wire diagram of two-board prototype.*
 
-![Wiring photo](images/fig6b_wiring_foto.png)
+![Wiring photo](images/fig6b_wiring_foto.jpeg)
 *Figure 6b : Photo of the two-board prototype.*
 
 Sharing the right-leg (RL) electrode between boards is fine. Sharing the left-arm (LA) electrode made both boards fail together in my test, with a correlation of 0.96 while standing, so each board should have its own LA.
